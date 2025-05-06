@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Display</title>
+  <style>
+    #preview {
+      width: 100%;
+      border: 2px solid black;
+    }
+
+    #remote-cursor {
+      position: absolute;
+      width: 20px;
+      height: 20px;
+      background: red;
+      border-radius: 50%;
+      pointer-events: none;
+      z-index: 1000;
+    }
+
+    body {
+      margin: 0;
+      overflow: hidden;
+    }
+
+    #container {
+      position: relative;
+    }
+  </style>
+</head>
+<body>
+  <div id="container">
+    <video id="preview" autoplay muted playsinline></video>
+    <div id="remote-cursor"></div>
+    <button id="redBtn" style="position: absolute; top: 20px; left: 20px;">Red Square</button>
+    <button id="blueBtn" style="position: absolute; top: 60px; left: 20px;">Blue Square</button>
+    <div id="color-box" style="position: absolute; top: 120px; left: 20px; width: 100px; height: 100px; background: gray;"></div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io();
+    const video = document.getElementById("preview");
+    const remoteCursor = document.getElementById("remote-cursor");
+
+    // Screen sharing
+    navigator.mediaDevices.getDisplayMedia({ video: true }).then(stream => {
+      video.srcObject = stream;
+      video.style.display = 'none'; // Hide video to avoid mirror effect when sharing this tab
+
+      const peer = new RTCPeerConnection();
+      stream.getTracks().forEach(track => peer.addTrack(track, stream));
+
+      peer.onicecandidate = e => {
+        if (e.candidate) socket.emit("candidate", e.candidate);
+      };
+
+      peer.createOffer().then(offer => {
+        return peer.setLocalDescription(offer).then(() => {
+          socket.emit("offer", offer);
+        });
+      });
+
+      socket.on("answer", answer => peer.setRemoteDescription(answer));
+      socket.on("candidate", candidate => peer.addIceCandidate(candidate));
+    }).catch(err => {
+      alert("Screen sharing failed: " + err);
+    });
+
+    // Handle cursor from controller
+    socket.on("cursorMove", ({ x, y }) => {
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+      remoteCursor.style.left = `${x * width}px`;
+      remoteCursor.style.top = `${y * height}px`;
+    });
+
+    // Handle click event from controller
+    socket.on("cursorClick", () => {
+      const clickedElement = document.elementFromPoint(
+        parseFloat(remoteCursor.style.left),
+        parseFloat(remoteCursor.style.top)
+      );
+      if (clickedElement) {
+        const event = new MouseEvent("click", {
+          view: window,
+          bubbles: true,
+          cancelable: true
+        });
+        clickedElement.dispatchEvent(event);
+      }
+    });
+
+    // Add local button actions
+    document.getElementById("redBtn").addEventListener("click", () => {
+      document.getElementById("color-box").style.background = "red";
+    });
+
+    document.getElementById("blueBtn").addEventListener("click", () => {
+      document.getElementById("color-box").style.background = "blue";
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Controller</title>
+</head>
+<body>
+  <h2>Controller receiving screen...</h2>
+  <button id="lockMouseBtn">Lock Mouse</button>
+  <video id="remoteVideo" autoplay playsinline controls style="width: 50%; border: 2px solid green;"></video>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io();
+    const video = document.getElementById("remoteVideo");
+    const peer = new RTCPeerConnection();
+
+    peer.ontrack = event => {
+      video.srcObject = event.streams[0];
+    };
+
+    peer.onicecandidate = e => {
+      if (e.candidate) socket.emit("candidate", e.candidate);
+    };
+
+    socket.on("offer", offer => {
+      peer.setRemoteDescription(offer).then(() => {
+        return peer.createAnswer();
+      }).then(answer => {
+        return peer.setLocalDescription(answer);
+      }).then(() => {
+        socket.emit("answer", peer.localDescription);
+      });
+    });
+
+    socket.on("candidate", candidate => peer.addIceCandidate(candidate));
+
+    const lockBtn = document.getElementById("lockMouseBtn");
+
+    let locked = false;
+    let pointerX = 0.5; // Start in the middle
+    let pointerY = 0.5;
+
+    lockBtn.addEventListener("click", () => {
+      video.requestPointerLock();
+    });
+
+    document.addEventListener("pointerlockchange", () => {
+      locked = document.pointerLockElement === video;
+    });
+
+    document.addEventListener("mousemove", (e) => {
+      if (!locked) return;
+
+      const bounds = video.getBoundingClientRect();
+      const relX = e.movementX / bounds.width;
+      const relY = e.movementY / bounds.height;
+
+      pointerX += relX;
+      pointerY += relY;
+
+      pointerX = Math.max(0, Math.min(1, pointerX));
+      pointerY = Math.max(0, Math.min(1, pointerY));
+
+      socket.emit("cursorMove", { x: pointerX, y: pointerY });
+    });
+
+    /*
+    // Track mouse movement and emit
+    document.addEventListener("mousemove", (e) => {
+      const x = e.clientX / window.innerWidth;
+      const y = e.clientY / window.innerHeight;
+      socket.emit("cursorMove", { x, y });
+    });
+    */
+  </script>
+
+</body>
+</html>
